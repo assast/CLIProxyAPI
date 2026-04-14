@@ -689,6 +689,7 @@ func TestForwardResponsesWebsocketPreservesCompletedEvent(t *testing.T) {
 			errCh,
 			&timelineLog,
 			"session-1",
+			nil,
 		)
 		if err != nil {
 			serverErrCh <- err
@@ -768,6 +769,7 @@ func TestForwardResponsesWebsocketLogsAttemptedResponseOnWriteFailure(t *testing
 			errCh,
 			&timelineLog,
 			"session-1",
+			nil,
 		)
 		if err == nil {
 			serverErrCh <- errors.New("expected websocket write failure")
@@ -1063,6 +1065,77 @@ func TestResponsesWebsocketPinsOnlyWebsocketCapableAuth(t *testing.T) {
 
 	if got := executor.AuthIDs(); len(got) != 2 || got[0] != "auth-sse" || got[1] != "auth-ws" {
 		t.Fatalf("selected auth IDs = %v, want [auth-sse auth-ws]", got)
+	}
+}
+
+func TestResponsesWebsocketSessionAffinityReusesCachedAuthAcrossReconnects(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	selector := &orderedWebsocketSelector{order: []string{"auth-a", "auth-b"}}
+	executor := &websocketAuthCaptureExecutor{}
+	manager := coreauth.NewManager(nil, selector, nil)
+	manager.RegisterExecutor(executor)
+	manager.SetConfig(&sdkconfig.Config{
+		Routing: sdkconfig.RoutingConfig{Strategy: routingStrategyRoundRobinSessionAffinity},
+	})
+
+	authA := &coreauth.Auth{ID: "auth-a", Provider: executor.Identifier(), Status: coreauth.StatusActive}
+	authB := &coreauth.Auth{ID: "auth-b", Provider: executor.Identifier(), Status: coreauth.StatusActive}
+	if _, err := manager.Register(context.Background(), authA); err != nil {
+		t.Fatalf("Register authA: %v", err)
+	}
+	if _, err := manager.Register(context.Background(), authB); err != nil {
+		t.Fatalf("Register authB: %v", err)
+	}
+
+	registry.GetGlobalRegistry().RegisterClient(authA.ID, authA.Provider, []*registry.ModelInfo{{ID: "test-model"}})
+	registry.GetGlobalRegistry().RegisterClient(authB.ID, authB.Provider, []*registry.ModelInfo{{ID: "test-model"}})
+	t.Cleanup(func() {
+		registry.GetGlobalRegistry().UnregisterClient(authA.ID)
+		registry.GetGlobalRegistry().UnregisterClient(authB.ID)
+	})
+
+	base := handlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, manager)
+	h := NewOpenAIResponsesAPIHandler(base)
+	router := gin.New()
+	router.GET("/v1/responses/ws", h.ResponsesWebsocket)
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/v1/responses/ws"
+	headers := http.Header{}
+	headers.Set("Session_id", "session-affinity-1")
+
+	connectAndRun := func() {
+		conn, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
+		if err != nil {
+			t.Fatalf("dial websocket: %v", err)
+		}
+		defer func() {
+			if errClose := conn.Close(); errClose != nil {
+				t.Fatalf("close websocket: %v", errClose)
+			}
+		}()
+
+		request := `{"type":"response.create","model":"test-model","input":[{"type":"message","id":"msg-1"}]}`
+		if errWrite := conn.WriteMessage(websocket.TextMessage, []byte(request)); errWrite != nil {
+			t.Fatalf("write websocket message: %v", errWrite)
+		}
+		_, payload, errReadMessage := conn.ReadMessage()
+		if errReadMessage != nil {
+			t.Fatalf("read websocket message: %v", errReadMessage)
+		}
+		if got := gjson.GetBytes(payload, "type").String(); got != wsEventTypeCompleted {
+			t.Fatalf("payload type = %s, want %s", got, wsEventTypeCompleted)
+		}
+	}
+
+	connectAndRun()
+	connectAndRun()
+
+	if got := executor.AuthIDs(); len(got) != 2 || got[0] != "auth-a" || got[1] != "auth-a" {
+		t.Fatalf("selected auth IDs = %v, want [auth-a auth-a]", got)
 	}
 }
 

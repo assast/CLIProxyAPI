@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	. "github.com/router-for-me/CLIProxyAPI/v6/internal/constant"
@@ -46,6 +48,7 @@ func writeResponsesSSEChunk(w io.Writer, chunk []byte) {
 
 type responsesSSEFramer struct {
 	pending []byte
+	onFrame func([]byte)
 }
 
 func (f *responsesSSEFramer) WriteChunk(w io.Writer, chunk []byte) {
@@ -61,7 +64,7 @@ func (f *responsesSSEFramer) WriteChunk(w io.Writer, chunk []byte) {
 		if frameLen == 0 {
 			break
 		}
-		writeResponsesSSEChunk(w, f.pending[:frameLen])
+		f.emitFrame(w, f.pending[:frameLen])
 		copy(f.pending, f.pending[frameLen:])
 		f.pending = f.pending[:len(f.pending)-frameLen]
 	}
@@ -72,7 +75,7 @@ func (f *responsesSSEFramer) WriteChunk(w io.Writer, chunk []byte) {
 	if len(f.pending) == 0 || !responsesSSECanEmitWithoutDelimiter(f.pending) {
 		return
 	}
-	writeResponsesSSEChunk(w, f.pending)
+	f.emitFrame(w, f.pending)
 	f.pending = f.pending[:0]
 }
 
@@ -88,8 +91,18 @@ func (f *responsesSSEFramer) Flush(w io.Writer) {
 		f.pending = f.pending[:0]
 		return
 	}
-	writeResponsesSSEChunk(w, f.pending)
+	f.emitFrame(w, f.pending)
 	f.pending = f.pending[:0]
+}
+
+func (f *responsesSSEFramer) emitFrame(w io.Writer, frame []byte) {
+	if len(frame) == 0 {
+		return
+	}
+	if f != nil && f.onFrame != nil {
+		f.onFrame(bytes.Clone(frame))
+	}
+	writeResponsesSSEChunk(w, frame)
 }
 
 func responsesSSEFrameLen(chunk []byte) int {
@@ -321,6 +334,18 @@ func (h *OpenAIResponsesAPIHandler) handleNonStreamingResponse(c *gin.Context, r
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
+	var selectedAuthID string
+	var selectedAuthMu sync.RWMutex
+	if responsesSessionAffinityEnabled(h.AuthManager) {
+		if pinnedAuthID := responsesSessionAffinityResolveAuthID(h.AuthManager, responsesAffinityKeyForPreviousResponseID(rawJSON)); pinnedAuthID != "" {
+			cliCtx = handlers.WithPinnedAuthID(cliCtx, pinnedAuthID)
+		}
+		cliCtx = handlers.WithSelectedAuthIDCallback(cliCtx, func(authID string) {
+			selectedAuthMu.Lock()
+			selectedAuthID = authID
+			selectedAuthMu.Unlock()
+		})
+	}
 	stopKeepAlive := h.StartNonStreamingKeepAlive(c, cliCtx)
 
 	resp, upstreamHeaders, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, "")
@@ -332,6 +357,14 @@ func (h *OpenAIResponsesAPIHandler) handleNonStreamingResponse(c *gin.Context, r
 	}
 	handlers.WriteUpstreamHeaders(c.Writer.Header(), upstreamHeaders)
 	_, _ = c.Writer.Write(resp)
+	if responsesSessionAffinityEnabled(h.AuthManager) {
+		selectedAuthMu.RLock()
+		authID := strings.TrimSpace(selectedAuthID)
+		selectedAuthMu.RUnlock()
+		if responseID := responsesResponseIDFromPayload(resp); responseID != "" {
+			responsesSessionAffinityRemember(responsesAffinityKeyForResponseID(responseID), authID)
+		}
+	}
 	cliCancel()
 }
 
@@ -358,6 +391,18 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 	// New core execution path
 	modelName := gjson.GetBytes(rawJSON, "model").String()
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
+	var selectedAuthID string
+	var selectedAuthMu sync.RWMutex
+	if responsesSessionAffinityEnabled(h.AuthManager) {
+		if pinnedAuthID := responsesSessionAffinityResolveAuthID(h.AuthManager, responsesAffinityKeyForPreviousResponseID(rawJSON)); pinnedAuthID != "" {
+			cliCtx = handlers.WithPinnedAuthID(cliCtx, pinnedAuthID)
+		}
+		cliCtx = handlers.WithSelectedAuthIDCallback(cliCtx, func(authID string) {
+			selectedAuthMu.Lock()
+			selectedAuthID = authID
+			selectedAuthMu.Unlock()
+		})
+	}
 	dataChan, upstreamHeaders, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, "")
 
 	setSSEHeaders := func() {
@@ -367,6 +412,18 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 		c.Header("Access-Control-Allow-Origin", "*")
 	}
 	framer := &responsesSSEFramer{}
+	if responsesSessionAffinityEnabled(h.AuthManager) {
+		framer.onFrame = func(frame []byte) {
+			responseID := responsesResponseIDFromSSEFrame(frame)
+			if responseID == "" {
+				return
+			}
+			selectedAuthMu.RLock()
+			authID := strings.TrimSpace(selectedAuthID)
+			selectedAuthMu.RUnlock()
+			responsesSessionAffinityRemember(responsesAffinityKeyForResponseID(responseID), authID)
+		}
+	}
 
 	// Peek at the first chunk
 	for {

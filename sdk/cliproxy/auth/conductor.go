@@ -364,6 +364,18 @@ func (m *Manager) SetConfig(cfg *internalconfig.Config) {
 	m.rebuildAPIKeyModelAliasFromRuntimeConfig()
 }
 
+// RoutingStrategy returns the normalized routing strategy from the current runtime config.
+func (m *Manager) RoutingStrategy() string {
+	if m == nil {
+		return ""
+	}
+	cfg, _ := m.runtimeConfig.Load().(*internalconfig.Config)
+	if cfg == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(cfg.Routing.Strategy))
+}
+
 func (m *Manager) lookupAPIKeyUpstreamModel(authID, requestedModel string) string {
 	if m == nil {
 		return ""

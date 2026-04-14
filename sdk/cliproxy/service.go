@@ -635,6 +635,8 @@ func (s *Service) Run(ctx context.Context) error {
 			switch strategy {
 			case "fill-first", "fillfirst", "ff":
 				return "fill-first"
+			case "round-robin-session-affinity", "roundrobin-session-affinity", "rr-session-affinity", "session-affinity":
+				return "round-robin-session-affinity"
 			default:
 				return "round-robin"
 			}

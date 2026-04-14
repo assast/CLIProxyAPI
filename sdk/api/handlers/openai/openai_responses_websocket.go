@@ -79,6 +79,11 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 	var lastRequest []byte
 	lastResponseOutput := []byte("[]")
 	pinnedAuthID := ""
+	if responsesSessionAffinityEnabled(h.AuthManager) {
+		if cachedAuthID := responsesSessionAffinityResolveAuthID(h.AuthManager, responsesAffinityKeyForWebsocketSession(downstreamSessionKey)); cachedAuthID != "" {
+			pinnedAuthID = cachedAuthID
+		}
+	}
 
 	for {
 		msgType, payload, errReadMessage := conn.ReadMessage()
@@ -102,6 +107,15 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		// 	websocketPayloadPreview(payload),
 		// )
 		appendWebsocketTimelineEvent(&wsTimelineLog, "request", payload, time.Now())
+		requestAffinityKey := responsesAffinityKeyForWebsocketSession(downstreamSessionKey)
+		if requestAffinityKey == "" {
+			requestAffinityKey = responsesAffinityKeyForPreviousResponseID(payload)
+		}
+		if pinnedAuthID == "" && responsesSessionAffinityEnabled(h.AuthManager) {
+			if cachedAuthID := responsesSessionAffinityResolveAuthID(h.AuthManager, requestAffinityKey); cachedAuthID != "" {
+				pinnedAuthID = cachedAuthID
+			}
+		}
 
 		allowIncrementalInputWithPreviousResponseID := false
 		if pinnedAuthID != "" && h != nil && h.AuthManager != nil {
@@ -179,6 +193,10 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 				if authID == "" || h == nil || h.AuthManager == nil {
 					return
 				}
+				if responsesSessionAffinityEnabled(h.AuthManager) && requestAffinityKey != "" {
+					responsesSessionAffinityRemember(requestAffinityKey, authID)
+					pinnedAuthID = authID
+				}
 				selectedAuth, ok := h.AuthManager.GetByID(authID)
 				if !ok || selectedAuth == nil {
 					return
@@ -190,7 +208,19 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		}
 		dataChan, _, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, requestJSON, "")
 
-		completedOutput, errForward := h.forwardResponsesWebsocket(c, conn, cliCancel, dataChan, errChan, &wsTimelineLog, passthroughSessionID)
+		completedOutput, errForward := h.forwardResponsesWebsocket(c, conn, cliCancel, dataChan, errChan, &wsTimelineLog, passthroughSessionID, func(payload []byte) {
+			if !responsesSessionAffinityEnabled(h.AuthManager) {
+				return
+			}
+			responseID := responsesResponseIDFromWebsocketPayload(payload)
+			if responseID == "" || pinnedAuthID == "" {
+				return
+			}
+			responsesSessionAffinityRemember(responsesAffinityKeyForResponseID(responseID), pinnedAuthID)
+			if downstreamSessionKey != "" {
+				responsesSessionAffinityRemember(responsesAffinityKeyForWebsocketSession(downstreamSessionKey), pinnedAuthID)
+			}
+		})
 		if errForward != nil {
 			wsTerminateErr = errForward
 			log.Warnf("responses websocket: forward failed id=%s error=%v", passthroughSessionID, errForward)
@@ -711,6 +741,7 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 	errs <-chan *interfaces.ErrorMessage,
 	wsTimelineLog *strings.Builder,
 	sessionID string,
+	onPayload func([]byte),
 ) ([]byte, error) {
 	completed := false
 	completedOutput := []byte("[]")
@@ -798,6 +829,9 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 				if eventType == wsEventTypeCompleted {
 					completed = true
 					completedOutput = responseCompletedOutputFromPayload(payloads[i])
+				}
+				if onPayload != nil {
+					onPayload(payloads[i])
 				}
 				markAPIResponseTimestamp(c)
 				// log.Infof(
