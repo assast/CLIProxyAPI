@@ -79,9 +79,12 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 	var lastRequest []byte
 	lastResponseOutput := []byte("[]")
 	pinnedAuthID := ""
-	if responsesSessionAffinityEnabled(h.AuthManager) {
+	affinityEnabled := responsesSessionAffinityEnabled(h.AuthManager)
+	if affinityEnabled {
+		log.Infof("responses websocket: session-affinity enabled id=%s downstream_key=%q", passthroughSessionID, downstreamSessionKey)
 		if cachedAuthID := responsesSessionAffinityResolveAuthID(h.AuthManager, responsesAffinityKeyForWebsocketSession(downstreamSessionKey)); cachedAuthID != "" {
 			pinnedAuthID = cachedAuthID
+			log.Infof("responses websocket: session-affinity restored from cache id=%s pinned=%s", passthroughSessionID, pinnedAuthID)
 		}
 	}
 
@@ -196,6 +199,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		cliCtx = handlers.WithExecutionSessionID(cliCtx, passthroughSessionID)
 		if pinnedAuthID != "" {
 			cliCtx = handlers.WithPinnedAuthID(cliCtx, pinnedAuthID)
+			log.Infof("responses websocket: session-affinity pinned id=%s auth=%s", passthroughSessionID, pinnedAuthID)
 		} else {
 			cliCtx = handlers.WithSelectedAuthIDCallback(cliCtx, func(authID string) {
 				authID = strings.TrimSpace(authID)
@@ -207,6 +211,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 						responsesSessionAffinityRemember(requestAffinityKey, authID)
 					}
 					pinnedAuthID = authID
+					log.Infof("responses websocket: session-affinity callback pinned id=%s auth=%s key=%q", passthroughSessionID, authID, requestAffinityKey)
 				}
 				selectedAuth, ok := h.AuthManager.GetByID(authID)
 				if !ok || selectedAuth == nil {
