@@ -108,12 +108,21 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		// )
 		appendWebsocketTimelineEvent(&wsTimelineLog, "request", payload, time.Now())
 		requestAffinityKey := responsesAffinityKeyForWebsocketSession(downstreamSessionKey)
-		if requestAffinityKey == "" {
-			requestAffinityKey = responsesAffinityKeyForPreviousResponseID(payload)
-		}
 		if pinnedAuthID == "" && responsesSessionAffinityEnabled(h.AuthManager) {
-			if cachedAuthID := responsesSessionAffinityResolveAuthID(h.AuthManager, requestAffinityKey); cachedAuthID != "" {
-				pinnedAuthID = cachedAuthID
+			resolved := ""
+			if requestAffinityKey != "" {
+				resolved = responsesSessionAffinityResolveAuthID(h.AuthManager, requestAffinityKey)
+			}
+			if resolved == "" {
+				if responseIDKey := responsesAffinityKeyForPreviousResponseID(payload); responseIDKey != "" {
+					resolved = responsesSessionAffinityResolveAuthID(h.AuthManager, responseIDKey)
+				}
+			}
+			if resolved != "" {
+				pinnedAuthID = resolved
+				if requestAffinityKey != "" {
+					responsesSessionAffinityRemember(requestAffinityKey, resolved)
+				}
 			}
 		}
 
@@ -193,8 +202,10 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 				if authID == "" || h == nil || h.AuthManager == nil {
 					return
 				}
-				if responsesSessionAffinityEnabled(h.AuthManager) && requestAffinityKey != "" {
-					responsesSessionAffinityRemember(requestAffinityKey, authID)
+				if responsesSessionAffinityEnabled(h.AuthManager) {
+					if requestAffinityKey != "" {
+						responsesSessionAffinityRemember(requestAffinityKey, authID)
+					}
 					pinnedAuthID = authID
 				}
 				selectedAuth, ok := h.AuthManager.GetByID(authID)
