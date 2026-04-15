@@ -69,6 +69,13 @@ type websocketAuthCaptureExecutor struct {
 	authIDs []string
 }
 
+type websocketAffinityFallbackExecutor struct {
+	mu         sync.Mutex
+	authIDs    []string
+	authACalls int
+	successes  int
+}
+
 func (e *websocketAuthCaptureExecutor) Identifier() string { return "test-provider" }
 
 func (e *websocketAuthCaptureExecutor) Execute(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
@@ -101,6 +108,65 @@ func (e *websocketAuthCaptureExecutor) HttpRequest(context.Context, *coreauth.Au
 }
 
 func (e *websocketAuthCaptureExecutor) AuthIDs() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]string(nil), e.authIDs...)
+}
+
+func (e *websocketAffinityFallbackExecutor) Identifier() string { return "test-provider" }
+
+func (e *websocketAffinityFallbackExecutor) Execute(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
+	return coreexecutor.Response{}, errors.New("not implemented")
+}
+
+func (e *websocketAffinityFallbackExecutor) ExecuteStream(_ context.Context, auth *coreauth.Auth, _ coreexecutor.Request, _ coreexecutor.Options) (*coreexecutor.StreamResult, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	authID := ""
+	if auth != nil {
+		authID = auth.ID
+		e.authIDs = append(e.authIDs, authID)
+	}
+
+	if authID == "auth-a" {
+		e.authACalls++
+		if e.authACalls > 1 {
+			chunks := make(chan coreexecutor.StreamChunk, 1)
+			chunks <- coreexecutor.StreamChunk{
+				Err: &coreauth.Error{
+					Code:       "unauthorized",
+					Message:    "unauthorized",
+					Retryable:  false,
+					HTTPStatus: http.StatusUnauthorized,
+				},
+			}
+			close(chunks)
+			return &coreexecutor.StreamResult{Chunks: chunks}, nil
+		}
+	}
+
+	e.successes++
+	responseID := fmt.Sprintf("resp-%d", e.successes)
+	chunks := make(chan coreexecutor.StreamChunk, 1)
+	chunks <- coreexecutor.StreamChunk{Payload: []byte(fmt.Sprintf(`{"type":"response.completed","response":{"id":"%s","output":[{"type":"message","id":"out-%d"}]}}`, responseID, e.successes))}
+	close(chunks)
+	return &coreexecutor.StreamResult{Chunks: chunks}, nil
+}
+
+func (e *websocketAffinityFallbackExecutor) Refresh(_ context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
+	return auth, nil
+}
+
+func (e *websocketAffinityFallbackExecutor) CountTokens(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
+	return coreexecutor.Response{}, errors.New("not implemented")
+}
+
+func (e *websocketAffinityFallbackExecutor) HttpRequest(context.Context, *coreauth.Auth, *http.Request) (*http.Response, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (e *websocketAffinityFallbackExecutor) AuthIDs() []string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return append([]string(nil), e.authIDs...)
@@ -1136,6 +1202,78 @@ func TestResponsesWebsocketSessionAffinityReusesCachedAuthAcrossReconnects(t *te
 
 	if got := executor.AuthIDs(); len(got) != 2 || got[0] != "auth-a" || got[1] != "auth-a" {
 		t.Fatalf("selected auth IDs = %v, want [auth-a auth-a]", got)
+	}
+}
+
+func TestResponsesWebsocketSessionAffinityFallsBackAndRebinds(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	selector := &orderedWebsocketSelector{order: []string{"auth-a", "auth-b"}}
+	executor := &websocketAffinityFallbackExecutor{}
+	manager := coreauth.NewManager(nil, selector, nil)
+	manager.RegisterExecutor(executor)
+	manager.SetConfig(&sdkconfig.Config{
+		Routing: sdkconfig.RoutingConfig{Strategy: routingStrategyRoundRobinSessionAffinity},
+	})
+
+	authA := &coreauth.Auth{ID: "auth-a", Provider: executor.Identifier(), Status: coreauth.StatusActive}
+	authB := &coreauth.Auth{ID: "auth-b", Provider: executor.Identifier(), Status: coreauth.StatusActive}
+	if _, err := manager.Register(context.Background(), authA); err != nil {
+		t.Fatalf("Register authA: %v", err)
+	}
+	if _, err := manager.Register(context.Background(), authB); err != nil {
+		t.Fatalf("Register authB: %v", err)
+	}
+
+	registry.GetGlobalRegistry().RegisterClient(authA.ID, authA.Provider, []*registry.ModelInfo{{ID: "test-model"}})
+	registry.GetGlobalRegistry().RegisterClient(authB.ID, authB.Provider, []*registry.ModelInfo{{ID: "test-model"}})
+	t.Cleanup(func() {
+		registry.GetGlobalRegistry().UnregisterClient(authA.ID)
+		registry.GetGlobalRegistry().UnregisterClient(authB.ID)
+	})
+
+	base := handlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, manager)
+	h := NewOpenAIResponsesAPIHandler(base)
+	router := gin.New()
+	router.GET("/v1/responses/ws", h.ResponsesWebsocket)
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/v1/responses/ws"
+	headers := http.Header{}
+	headers.Set("Session_id", "session-affinity-fallback-1")
+
+	connectAndRun := func() {
+		conn, _, err := websocket.DefaultDialer.Dial(wsURL, headers)
+		if err != nil {
+			t.Fatalf("dial websocket: %v", err)
+		}
+		defer func() {
+			if errClose := conn.Close(); errClose != nil {
+				t.Fatalf("close websocket: %v", errClose)
+			}
+		}()
+
+		request := `{"type":"response.create","model":"test-model","input":[{"type":"message","id":"msg-1"}]}`
+		if errWrite := conn.WriteMessage(websocket.TextMessage, []byte(request)); errWrite != nil {
+			t.Fatalf("write websocket message: %v", errWrite)
+		}
+		_, payload, errReadMessage := conn.ReadMessage()
+		if errReadMessage != nil {
+			t.Fatalf("read websocket message: %v", errReadMessage)
+		}
+		if got := gjson.GetBytes(payload, "type").String(); got != wsEventTypeCompleted {
+			t.Fatalf("payload type = %s, want %s", got, wsEventTypeCompleted)
+		}
+	}
+
+	connectAndRun()
+	connectAndRun()
+	connectAndRun()
+
+	if got := executor.AuthIDs(); len(got) != 4 || got[0] != "auth-a" || got[1] != "auth-a" || got[2] != "auth-b" || got[3] != "auth-b" {
+		t.Fatalf("selected auth IDs = %v, want [auth-a auth-a auth-b auth-b]", got)
 	}
 }
 

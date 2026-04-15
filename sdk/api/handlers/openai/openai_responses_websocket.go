@@ -199,6 +199,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		cliCtx = handlers.WithExecutionSessionID(cliCtx, passthroughSessionID)
 		if pinnedAuthID != "" {
 			cliCtx = handlers.WithPinnedAuthID(cliCtx, pinnedAuthID)
+			cliCtx = handlers.WithPinnedAuthSoftFallback(cliCtx)
 			log.Infof("responses websocket: session-affinity pinned id=%s auth=%s", passthroughSessionID, pinnedAuthID)
 		} else {
 			cliCtx = handlers.WithSelectedAuthIDCallback(cliCtx, func(authID string) {

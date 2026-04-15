@@ -352,6 +352,7 @@ func (h *OpenAIResponsesAPIHandler) handleNonStreamingResponse(c *gin.Context, r
 		}
 		if pinnedAuthID != "" {
 			cliCtx = handlers.WithPinnedAuthID(cliCtx, pinnedAuthID)
+			cliCtx = handlers.WithPinnedAuthSoftFallback(cliCtx)
 			log.Infof("responses non-stream: session-affinity pinned prev_resp_id=%q session_key=%q auth=%s", prevRespID, httpSessionKey, pinnedAuthID)
 		} else {
 			log.Infof("responses non-stream: session-affinity no pin prev_resp_id=%q session_key=%q", prevRespID, httpSessionKey)
@@ -431,6 +432,7 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 		}
 		if pinnedAuthID != "" {
 			cliCtx = handlers.WithPinnedAuthID(cliCtx, pinnedAuthID)
+			cliCtx = handlers.WithPinnedAuthSoftFallback(cliCtx)
 			log.Infof("responses stream: session-affinity pinned prev_resp_id=%q session_key=%q auth=%s", prevRespID, httpSessionKey, pinnedAuthID)
 		} else {
 			log.Infof("responses stream: session-affinity no pin prev_resp_id=%q session_key=%q", prevRespID, httpSessionKey)

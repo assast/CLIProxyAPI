@@ -60,12 +60,14 @@ type RefreshEvaluator interface {
 }
 
 const (
-	refreshCheckInterval  = 5 * time.Second
-	refreshMaxConcurrency = 16
-	refreshPendingBackoff = time.Minute
-	refreshFailureBackoff = 5 * time.Minute
-	quotaBackoffBase      = time.Second
-	quotaBackoffMax       = 30 * time.Minute
+	refreshCheckInterval                  = 5 * time.Second
+	refreshMaxConcurrency                 = 16
+	refreshPendingBackoff                 = time.Minute
+	refreshFailureBackoff                 = 5 * time.Minute
+	quotaBackoffBase                      = time.Second
+	quotaBackoffMax                       = 30 * time.Minute
+	pinnedAuthFallbackReleasedMetadataKey = "cliproxy_pinned_auth_fallback_released"
+	pinnedAuthFallbackPreviousAuthIDKey   = "cliproxy_pinned_auth_fallback_previous_auth_id"
 )
 
 var quotaCooldownDisabled atomic.Bool
@@ -1275,6 +1277,11 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 	}
 	routeModel := req.Model
 	opts = ensureRequestedModelMetadata(opts, routeModel)
+	releasePinnedAuth := func(err error) bool {
+		var released bool
+		opts, released = releasePinnedAuthForFallback(ctx, opts, routeModel, err)
+		return released
+	}
 	tried := make(map[string]struct{})
 	attempted := make(map[string]struct{})
 	var lastErr error
@@ -1287,6 +1294,9 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 		}
 		auth, executor, provider, errPick := m.pickNextMixed(ctx, providers, routeModel, opts, tried)
 		if errPick != nil {
+			if releasePinnedAuth(errPick) {
+				continue
+			}
 			if lastErr != nil {
 				return cliproxyexecutor.Response{}, lastErr
 			}
@@ -1295,6 +1305,14 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, req.Model)
+		if previousAuthID, ok := consumePinnedAuthFallbackReleased(&opts); ok {
+			entry.WithFields(log.Fields{
+				"previous_auth_id": previousAuthID,
+				"new_auth_id":      auth.ID,
+				"provider":         provider,
+				"model":            strings.TrimSpace(req.Model),
+			}).Info("pinned auth soft fallback rebound to selected auth")
+		}
 		publishSelectedAuthMetadata(opts.Metadata, auth.ID)
 
 		tried[auth.ID] = struct{}{}
@@ -1342,6 +1360,9 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req 
 				return cliproxyexecutor.Response{}, authErr
 			}
 			lastErr = authErr
+			if releasePinnedAuth(authErr) {
+				continue
+			}
 			continue
 		}
 	}
@@ -1353,6 +1374,11 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 	}
 	routeModel := req.Model
 	opts = ensureRequestedModelMetadata(opts, routeModel)
+	releasePinnedAuth := func(err error) bool {
+		var released bool
+		opts, released = releasePinnedAuthForFallback(ctx, opts, routeModel, err)
+		return released
+	}
 	tried := make(map[string]struct{})
 	attempted := make(map[string]struct{})
 	var lastErr error
@@ -1365,6 +1391,9 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 		}
 		auth, executor, provider, errPick := m.pickNextMixed(ctx, providers, routeModel, opts, tried)
 		if errPick != nil {
+			if releasePinnedAuth(errPick) {
+				continue
+			}
 			if lastErr != nil {
 				return cliproxyexecutor.Response{}, lastErr
 			}
@@ -1373,6 +1402,14 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, req.Model)
+		if previousAuthID, ok := consumePinnedAuthFallbackReleased(&opts); ok {
+			entry.WithFields(log.Fields{
+				"previous_auth_id": previousAuthID,
+				"new_auth_id":      auth.ID,
+				"provider":         provider,
+				"model":            strings.TrimSpace(req.Model),
+			}).Info("pinned auth soft fallback rebound to selected auth")
+		}
 		publishSelectedAuthMetadata(opts.Metadata, auth.ID)
 
 		tried[auth.ID] = struct{}{}
@@ -1420,6 +1457,9 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
 				return cliproxyexecutor.Response{}, authErr
 			}
 			lastErr = authErr
+			if releasePinnedAuth(authErr) {
+				continue
+			}
 			continue
 		}
 	}
@@ -1431,6 +1471,11 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 	}
 	routeModel := req.Model
 	opts = ensureRequestedModelMetadata(opts, routeModel)
+	releasePinnedAuth := func(err error) bool {
+		var released bool
+		opts, released = releasePinnedAuthForFallback(ctx, opts, routeModel, err)
+		return released
+	}
 	tried := make(map[string]struct{})
 	attempted := make(map[string]struct{})
 	var lastErr error
@@ -1447,6 +1492,9 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 		}
 		auth, executor, provider, errPick := m.pickNextMixed(ctx, providers, routeModel, opts, tried)
 		if errPick != nil {
+			if releasePinnedAuth(errPick) {
+				continue
+			}
 			if lastErr != nil {
 				var bootstrapErr *streamBootstrapError
 				if errors.As(lastErr, &bootstrapErr) && bootstrapErr != nil {
@@ -1459,6 +1507,14 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 
 		entry := logEntryWithRequestID(ctx)
 		debugLogAuthSelection(entry, auth, provider, req.Model)
+		if previousAuthID, ok := consumePinnedAuthFallbackReleased(&opts); ok {
+			entry.WithFields(log.Fields{
+				"previous_auth_id": previousAuthID,
+				"new_auth_id":      auth.ID,
+				"provider":         provider,
+				"model":            strings.TrimSpace(req.Model),
+			}).Info("pinned auth soft fallback rebound to selected auth")
+		}
 		publishSelectedAuthMetadata(opts.Metadata, auth.ID)
 
 		tried[auth.ID] = struct{}{}
@@ -1481,6 +1537,9 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
 				return nil, errStream
 			}
 			lastErr = errStream
+			if releasePinnedAuth(errStream) {
+				continue
+			}
 			continue
 		}
 		return streamResult, nil
@@ -1534,6 +1593,104 @@ func pinnedAuthIDFromMetadata(meta map[string]any) string {
 	if !ok || raw == nil {
 		return ""
 	}
+	switch val := raw.(type) {
+	case string:
+		return strings.TrimSpace(val)
+	case []byte:
+		return strings.TrimSpace(string(val))
+	default:
+		return ""
+	}
+}
+
+func pinnedAuthSoftFallbackEnabled(meta map[string]any) bool {
+	if len(meta) == 0 {
+		return false
+	}
+	raw, ok := meta[cliproxyexecutor.PinnedAuthSoftFallbackMetadataKey]
+	if !ok || raw == nil {
+		return false
+	}
+	switch val := raw.(type) {
+	case bool:
+		return val
+	case string:
+		enabled, errParse := strconv.ParseBool(strings.TrimSpace(val))
+		return errParse == nil && enabled
+	case []byte:
+		enabled, errParse := strconv.ParseBool(strings.TrimSpace(string(val)))
+		return errParse == nil && enabled
+	default:
+		return false
+	}
+}
+
+func withoutPinnedAuthMetadata(opts cliproxyexecutor.Options) cliproxyexecutor.Options {
+	if len(opts.Metadata) == 0 {
+		return opts
+	}
+	if _, ok := opts.Metadata[cliproxyexecutor.PinnedAuthMetadataKey]; !ok {
+		return opts
+	}
+	meta := make(map[string]any, len(opts.Metadata)-1)
+	for key, value := range opts.Metadata {
+		if key == cliproxyexecutor.PinnedAuthMetadataKey {
+			continue
+		}
+		meta[key] = value
+	}
+	opts.Metadata = meta
+	return opts
+}
+
+func releasePinnedAuthForFallback(ctx context.Context, opts cliproxyexecutor.Options, model string, err error) (cliproxyexecutor.Options, bool) {
+	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
+	if pinnedAuthID == "" || !pinnedAuthSoftFallbackEnabled(opts.Metadata) {
+		return opts, false
+	}
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || isRequestInvalidError(err) {
+			return opts, false
+		}
+	}
+
+	entry := logEntryWithRequestID(ctx).WithFields(log.Fields{
+		"auth_id": pinnedAuthID,
+		"model":   strings.TrimSpace(model),
+	})
+	if status := statusCodeFromError(err); status > 0 {
+		entry = entry.WithField("status_code", status)
+	}
+	entry.Info("pinned auth soft fallback released; retrying with normal routing")
+	opts = withoutPinnedAuthMetadata(opts)
+	if len(opts.Metadata) == 0 {
+		opts.Metadata = map[string]any{
+			pinnedAuthFallbackReleasedMetadataKey: true,
+			pinnedAuthFallbackPreviousAuthIDKey:   pinnedAuthID,
+		}
+	} else {
+		opts.Metadata[pinnedAuthFallbackReleasedMetadataKey] = true
+		opts.Metadata[pinnedAuthFallbackPreviousAuthIDKey] = pinnedAuthID
+	}
+	return opts, true
+}
+
+func consumePinnedAuthFallbackReleased(opts *cliproxyexecutor.Options) (string, bool) {
+	if opts == nil || len(opts.Metadata) == 0 {
+		return "", false
+	}
+	raw, ok := opts.Metadata[pinnedAuthFallbackReleasedMetadataKey]
+	if !ok {
+		return "", false
+	}
+	delete(opts.Metadata, pinnedAuthFallbackReleasedMetadataKey)
+	previousAuthID := pinnedAuthIDFromMetadataValue(opts.Metadata[pinnedAuthFallbackPreviousAuthIDKey])
+	delete(opts.Metadata, pinnedAuthFallbackPreviousAuthIDKey)
+	enabled, ok := raw.(bool)
+	return previousAuthID, ok && enabled
+}
+
+func pinnedAuthIDFromMetadataValue(raw any) string {
 	switch val := raw.(type) {
 	case string:
 		return strings.TrimSpace(val)
