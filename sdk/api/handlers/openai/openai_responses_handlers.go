@@ -337,13 +337,24 @@ func (h *OpenAIResponsesAPIHandler) handleNonStreamingResponse(c *gin.Context, r
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
 	var selectedAuthID string
 	var selectedAuthMu sync.RWMutex
+	httpSessionKey := ""
 	if responsesSessionAffinityEnabled(h.AuthManager) {
+		httpSessionKey = httpResponsesDownstreamSessionKey(c.Request)
 		prevRespID := strings.TrimSpace(gjson.GetBytes(rawJSON, "previous_response_id").String())
-		if pinnedAuthID := responsesSessionAffinityResolveAuthID(h.AuthManager, responsesAffinityKeyForPreviousResponseID(rawJSON)); pinnedAuthID != "" {
+		pinnedAuthID := ""
+		if responseIDKey := responsesAffinityKeyForPreviousResponseID(rawJSON); responseIDKey != "" {
+			pinnedAuthID = responsesSessionAffinityResolveAuthID(h.AuthManager, responseIDKey)
+		}
+		if pinnedAuthID == "" {
+			if sessionAffinityKey := responsesAffinityKeyForHTTPSession(httpSessionKey); sessionAffinityKey != "" {
+				pinnedAuthID = responsesSessionAffinityResolveAuthID(h.AuthManager, sessionAffinityKey)
+			}
+		}
+		if pinnedAuthID != "" {
 			cliCtx = handlers.WithPinnedAuthID(cliCtx, pinnedAuthID)
-			log.Infof("responses non-stream: session-affinity pinned prev_resp_id=%q auth=%s", prevRespID, pinnedAuthID)
+			log.Infof("responses non-stream: session-affinity pinned prev_resp_id=%q session_key=%q auth=%s", prevRespID, httpSessionKey, pinnedAuthID)
 		} else {
-			log.Infof("responses non-stream: session-affinity no pin prev_resp_id=%q", prevRespID)
+			log.Infof("responses non-stream: session-affinity no pin prev_resp_id=%q session_key=%q", prevRespID, httpSessionKey)
 		}
 		cliCtx = handlers.WithSelectedAuthIDCallback(cliCtx, func(authID string) {
 			selectedAuthMu.Lock()
@@ -368,7 +379,10 @@ func (h *OpenAIResponsesAPIHandler) handleNonStreamingResponse(c *gin.Context, r
 		selectedAuthMu.RUnlock()
 		if responseID := responsesResponseIDFromPayload(resp); responseID != "" {
 			responsesSessionAffinityRemember(responsesAffinityKeyForResponseID(responseID), authID)
-			log.Infof("responses non-stream: session-affinity stored resp_id=%s auth=%s", responseID, authID)
+			if sessionAffinityKey := responsesAffinityKeyForHTTPSession(httpSessionKey); sessionAffinityKey != "" {
+				responsesSessionAffinityRemember(sessionAffinityKey, authID)
+			}
+			log.Infof("responses non-stream: session-affinity stored resp_id=%s session_key=%q auth=%s", responseID, httpSessionKey, authID)
 		} else {
 			log.Infof("responses non-stream: session-affinity no resp_id extracted auth=%s", authID)
 		}
@@ -401,13 +415,25 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
 	var selectedAuthID string
 	var selectedAuthMu sync.RWMutex
+	httpSessionKey := ""
 	if responsesSessionAffinityEnabled(h.AuthManager) {
+		httpSessionKey = httpResponsesDownstreamSessionKey(c.Request)
 		prevRespID := strings.TrimSpace(gjson.GetBytes(rawJSON, "previous_response_id").String())
-		if pinnedAuthID := responsesSessionAffinityResolveAuthID(h.AuthManager, responsesAffinityKeyForPreviousResponseID(rawJSON)); pinnedAuthID != "" {
+		// Try previous_response_id first, then fall back to HTTP session key
+		pinnedAuthID := ""
+		if responseIDKey := responsesAffinityKeyForPreviousResponseID(rawJSON); responseIDKey != "" {
+			pinnedAuthID = responsesSessionAffinityResolveAuthID(h.AuthManager, responseIDKey)
+		}
+		if pinnedAuthID == "" {
+			if sessionAffinityKey := responsesAffinityKeyForHTTPSession(httpSessionKey); sessionAffinityKey != "" {
+				pinnedAuthID = responsesSessionAffinityResolveAuthID(h.AuthManager, sessionAffinityKey)
+			}
+		}
+		if pinnedAuthID != "" {
 			cliCtx = handlers.WithPinnedAuthID(cliCtx, pinnedAuthID)
-			log.Infof("responses stream: session-affinity pinned prev_resp_id=%q auth=%s", prevRespID, pinnedAuthID)
+			log.Infof("responses stream: session-affinity pinned prev_resp_id=%q session_key=%q auth=%s", prevRespID, httpSessionKey, pinnedAuthID)
 		} else {
-			log.Infof("responses stream: session-affinity no pin prev_resp_id=%q", prevRespID)
+			log.Infof("responses stream: session-affinity no pin prev_resp_id=%q session_key=%q", prevRespID, httpSessionKey)
 		}
 		cliCtx = handlers.WithSelectedAuthIDCallback(cliCtx, func(authID string) {
 			selectedAuthMu.Lock()
@@ -434,7 +460,10 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 			authID := strings.TrimSpace(selectedAuthID)
 			selectedAuthMu.RUnlock()
 			responsesSessionAffinityRemember(responsesAffinityKeyForResponseID(responseID), authID)
-			log.Infof("responses stream: session-affinity stored resp_id=%s auth=%s", responseID, authID)
+			if sessionAffinityKey := responsesAffinityKeyForHTTPSession(httpSessionKey); sessionAffinityKey != "" {
+				responsesSessionAffinityRemember(sessionAffinityKey, authID)
+			}
+			log.Infof("responses stream: session-affinity stored resp_id=%s session_key=%q auth=%s", responseID, httpSessionKey, authID)
 		}
 	}
 

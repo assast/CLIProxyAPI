@@ -2,6 +2,7 @@ package openai
 
 import (
 	"bytes"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -56,6 +57,41 @@ func responsesAffinityKeyForWebsocketSession(sessionKey string) string {
 		return ""
 	}
 	return "responses:websocket:" + sessionKey
+}
+
+func responsesAffinityKeyForHTTPSession(sessionKey string) string {
+	sessionKey = strings.TrimSpace(sessionKey)
+	if sessionKey == "" {
+		return ""
+	}
+	return "responses:http:" + sessionKey
+}
+
+// httpResponsesDownstreamSessionKey extracts a stable session identifier from
+// HTTP request headers. It checks Claude Code, Codex, and generic session
+// headers in priority order.
+func httpResponsesDownstreamSessionKey(req *http.Request) string {
+	if req == nil {
+		return ""
+	}
+	// Claude Code session
+	if v := strings.TrimSpace(req.Header.Get("X-Claude-Code-Session-Id")); v != "" {
+		return v
+	}
+	// Codex turn metadata
+	if raw := strings.TrimSpace(req.Header.Get("X-Codex-Turn-Metadata")); raw != "" {
+		if sid := strings.TrimSpace(gjson.Get(raw, "session_id").String()); sid != "" {
+			return sid
+		}
+	}
+	// Generic session headers
+	if v := strings.TrimSpace(req.Header.Get("Session_id")); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(req.Header.Get("X-Session-Id")); v != "" {
+		return v
+	}
+	return ""
 }
 
 func responsesResponseIDFromPayload(rawJSON []byte) string {
