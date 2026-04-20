@@ -1,0 +1,4 @@
+interface:
+  display_name: "CLIProxyAPI Project"
+  short_description: "Project workflow for CLIProxyAPI changes"
+  default_prompt: "Use $cli-proxy-api-project to implement or review a change in the CLIProxyAPI repository."

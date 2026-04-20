@@ -10,3 +10,8 @@
 当软回退真的选到了新的 auth 时，明确记录“已重新绑定到哪个 auth”
 
 这个打包的docker是否可以使用traefik管理
+
+对比 git的
+c4459c43462c45bcd8ac346c72b98647675a014e
+c7508b7e8716037b45e72bbda35ebf9fa9cb3bf1 
+2个版本，对比差异，生成本项目专用skill

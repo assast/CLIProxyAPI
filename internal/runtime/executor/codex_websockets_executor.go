@@ -15,9 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 	"github.com/assast/CLIProxyAPI/v6/internal/config"
 	"github.com/assast/CLIProxyAPI/v6/internal/misc"
 	"github.com/assast/CLIProxyAPI/v6/internal/runtime/executor/helps"
@@ -27,6 +24,9 @@ import (
 	cliproxyexecutor "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	"github.com/assast/CLIProxyAPI/v6/sdk/proxyutil"
 	sdktranslator "github.com/assast/CLIProxyAPI/v6/sdk/translator"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -187,7 +187,6 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	body = helps.ApplyPayloadConfigWithRoot(e.cfg, baseModel, to.String(), "", body, originalTranslated, requestedModel)
 	body, _ = sjson.SetBytes(body, "model", baseModel)
 	body, _ = sjson.SetBytes(body, "stream", true)
-	body, _ = sjson.DeleteBytes(body, "previous_response_id")
 	body, _ = sjson.DeleteBytes(body, "prompt_cache_retention")
 	body, _ = sjson.DeleteBytes(body, "safety_identifier")
 	if !gjson.GetBytes(body, "instructions").Exists() {

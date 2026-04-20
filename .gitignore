@@ -34,7 +34,7 @@ GEMINI.md
 # Tooling metadata
 .vscode/*
 .worktrees/
-.codex/*
+#.codex/*
 .claude/*
 .gemini/*
 .serena/*
@@ -51,3 +51,4 @@ _bmad-output/*
 .DS_Store
 ._*
 .tmp
+/.tmp_codex_setup/
