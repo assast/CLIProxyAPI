@@ -14,15 +14,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"github.com/assast/CLIProxyAPI/v6/internal/interfaces"
-	"github.com/assast/CLIProxyAPI/v6/internal/logging"
-	"github.com/assast/CLIProxyAPI/v6/internal/thinking"
-	"github.com/assast/CLIProxyAPI/v6/internal/util"
-	coreauth "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/auth"
-	coreexecutor "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/executor"
-	"github.com/assast/CLIProxyAPI/v6/sdk/config"
-	sdktranslator "github.com/assast/CLIProxyAPI/v6/sdk/translator"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
+	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	coreexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
+	"github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
 	"golang.org/x/net/context"
 )
 
@@ -54,7 +53,6 @@ const (
 )
 
 type pinnedAuthContextKey struct{}
-type pinnedAuthSoftFallbackContextKey struct{}
 type selectedAuthCallbackContextKey struct{}
 type executionSessionContextKey struct{}
 
@@ -68,15 +66,6 @@ func WithPinnedAuthID(ctx context.Context, authID string) context.Context {
 		ctx = context.Background()
 	}
 	return context.WithValue(ctx, pinnedAuthContextKey{}, authID)
-}
-
-// WithPinnedAuthSoftFallback returns a child context that allows pinned auth selection
-// to fall back to normal routing after a non-request-invalid failure.
-func WithPinnedAuthSoftFallback(ctx context.Context) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithValue(ctx, pinnedAuthSoftFallbackContextKey{}, true)
 }
 
 // WithSelectedAuthIDCallback returns a child context that receives the selected auth ID.
@@ -198,23 +187,20 @@ func PassthroughHeadersEnabled(cfg *config.SDKConfig) bool {
 
 func requestExecutionMetadata(ctx context.Context) map[string]any {
 	// Idempotency-Key is an optional client-supplied header used to correlate retries.
-	// It is forwarded as execution metadata; when absent we generate a UUID.
+	// Only include it if the client explicitly provides it.
 	key := ""
 	if ctx != nil {
 		if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil && ginCtx.Request != nil {
 			key = strings.TrimSpace(ginCtx.GetHeader("Idempotency-Key"))
 		}
 	}
-	if key == "" {
-		key = uuid.NewString()
-	}
 
-	meta := map[string]any{idempotencyKeyMetadataKey: key}
+	meta := make(map[string]any)
+	if key != "" {
+		meta[idempotencyKeyMetadataKey] = key
+	}
 	if pinnedAuthID := pinnedAuthIDFromContext(ctx); pinnedAuthID != "" {
 		meta[coreexecutor.PinnedAuthMetadataKey] = pinnedAuthID
-	}
-	if pinnedAuthSoftFallbackFromContext(ctx) {
-		meta[coreexecutor.PinnedAuthSoftFallbackMetadataKey] = true
 	}
 	if selectedCallback := selectedAuthIDCallbackFromContext(ctx); selectedCallback != nil {
 		meta[coreexecutor.SelectedAuthCallbackMetadataKey] = selectedCallback
@@ -238,15 +224,6 @@ func pinnedAuthIDFromContext(ctx context.Context) string {
 	default:
 		return ""
 	}
-}
-
-func pinnedAuthSoftFallbackFromContext(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	raw := ctx.Value(pinnedAuthSoftFallbackContextKey{})
-	enabled, ok := raw.(bool)
-	return ok && enabled
 }
 
 func selectedAuthIDCallbackFromContext(ctx context.Context) func(string) {
