@@ -51,4 +51,4 @@ _bmad-output/*
 .DS_Store
 ._*
 .tmp
-/.tmp_codex_setup/
+/.tmp*/
