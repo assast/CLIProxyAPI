@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	coreauth "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	"github.com/tidwall/gjson"
 )
 

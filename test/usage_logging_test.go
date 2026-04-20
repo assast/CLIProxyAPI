@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-	runtimeexecutor "github.com/router-for-me/CLIProxyAPI/v6/internal/runtime/executor"
-	internalusage "github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
-	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
-	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+	"github.com/assast/CLIProxyAPI/v6/internal/config"
+	runtimeexecutor "github.com/assast/CLIProxyAPI/v6/internal/runtime/executor"
+	internalusage "github.com/assast/CLIProxyAPI/v6/internal/usage"
+	cliproxyauth "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/executor"
+	sdktranslator "github.com/assast/CLIProxyAPI/v6/sdk/translator"
 )
 
 func TestGeminiExecutorRecordsSuccessfulZeroUsageInStatistics(t *testing.T) {

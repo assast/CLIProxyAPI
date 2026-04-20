@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
+	"github.com/assast/CLIProxyAPI/v6/internal/thinking"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )

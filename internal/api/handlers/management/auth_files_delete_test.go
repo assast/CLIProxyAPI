@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	"github.com/assast/CLIProxyAPI/v6/internal/config"
+	coreauth "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/auth"
 )
 
 func TestDeleteAuthFile_UsesAuthPathFromManager(t *testing.T) {

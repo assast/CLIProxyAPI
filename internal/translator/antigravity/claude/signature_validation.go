@@ -53,7 +53,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/cache"
+	"github.com/assast/CLIProxyAPI/v6/internal/cache"
 	"github.com/tidwall/gjson"
 	"google.golang.org/protobuf/encoding/protowire"
 )

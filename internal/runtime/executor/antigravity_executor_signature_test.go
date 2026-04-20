@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/cache"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
-	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
-	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+	"github.com/assast/CLIProxyAPI/v6/internal/cache"
+	cliproxyauth "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/executor"
+	sdktranslator "github.com/assast/CLIProxyAPI/v6/sdk/translator"
 )
 
 func testGeminiSignaturePayload() string {

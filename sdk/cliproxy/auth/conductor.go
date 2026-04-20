@@ -16,12 +16,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	internalconfig "github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
-	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
+	internalconfig "github.com/assast/CLIProxyAPI/v6/internal/config"
+	"github.com/assast/CLIProxyAPI/v6/internal/logging"
+	"github.com/assast/CLIProxyAPI/v6/internal/registry"
+	"github.com/assast/CLIProxyAPI/v6/internal/thinking"
+	"github.com/assast/CLIProxyAPI/v6/internal/util"
+	cliproxyexecutor "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	log "github.com/sirupsen/logrus"
 )
 

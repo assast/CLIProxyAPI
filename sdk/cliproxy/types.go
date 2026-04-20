@@ -6,9 +6,9 @@ package cliproxy
 import (
 	"context"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/watcher"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
-	"github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
+	"github.com/assast/CLIProxyAPI/v6/internal/watcher"
+	coreauth "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	"github.com/assast/CLIProxyAPI/v6/sdk/config"
 )
 
 // TokenClientProvider loads clients backed by stored authentication tokens.

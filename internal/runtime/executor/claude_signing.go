@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	xxHash64 "github.com/pierrec/xxHash/xxHash64"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	"github.com/assast/CLIProxyAPI/v6/internal/config"
+	cliproxyauth "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )

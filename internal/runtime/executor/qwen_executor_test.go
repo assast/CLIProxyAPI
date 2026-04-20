@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
-	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
-	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+	"github.com/assast/CLIProxyAPI/v6/internal/config"
+	"github.com/assast/CLIProxyAPI/v6/internal/thinking"
+	cliproxyauth "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/executor"
+	sdktranslator "github.com/assast/CLIProxyAPI/v6/sdk/translator"
 	"github.com/tidwall/gjson"
 )
 
