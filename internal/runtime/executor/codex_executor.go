@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	codexauth "github.com/assast/CLIProxyAPI/v6/internal/auth/codex"
 	"github.com/assast/CLIProxyAPI/v6/internal/config"
 	"github.com/assast/CLIProxyAPI/v6/internal/misc"
 	"github.com/assast/CLIProxyAPI/v6/internal/runtime/executor/helps"
@@ -595,42 +594,10 @@ func countCodexInputTokens(enc tokenizer.Codec, body []byte) (int64, error) {
 	return int64(count), nil
 }
 
-func (e *CodexExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
-	log.Debugf("codex executor: refresh called")
+func (e *CodexExecutor) Refresh(_ context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
 	if auth == nil {
 		return nil, statusErr{code: 500, msg: "codex executor: auth is nil"}
 	}
-	var refreshToken string
-	if auth.Metadata != nil {
-		if v, ok := auth.Metadata["refresh_token"].(string); ok && v != "" {
-			refreshToken = v
-		}
-	}
-	if refreshToken == "" {
-		return auth, nil
-	}
-	svc := codexauth.NewCodexAuthWithProxyURL(e.cfg, auth.ProxyURL)
-	td, err := svc.RefreshTokensWithRetry(ctx, refreshToken, 3)
-	if err != nil {
-		return nil, err
-	}
-	if auth.Metadata == nil {
-		auth.Metadata = make(map[string]any)
-	}
-	auth.Metadata["id_token"] = td.IDToken
-	auth.Metadata["access_token"] = td.AccessToken
-	if td.RefreshToken != "" {
-		auth.Metadata["refresh_token"] = td.RefreshToken
-	}
-	if td.AccountID != "" {
-		auth.Metadata["account_id"] = td.AccountID
-	}
-	auth.Metadata["email"] = td.Email
-	// Use unified key in files
-	auth.Metadata["expired"] = td.Expire
-	auth.Metadata["type"] = "codex"
-	now := time.Now().Format(time.RFC3339)
-	auth.Metadata["last_refresh"] = now
 	return auth, nil
 }
 

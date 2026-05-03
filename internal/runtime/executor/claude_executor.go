@@ -12,12 +12,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/andybalholm/brotli"
-	"github.com/google/uuid"
-	"github.com/klauspost/compress/zstd"
-	claudeauth "github.com/assast/CLIProxyAPI/v6/internal/auth/claude"
 	"github.com/assast/CLIProxyAPI/v6/internal/config"
 	"github.com/assast/CLIProxyAPI/v6/internal/misc"
 	"github.com/assast/CLIProxyAPI/v6/internal/registry"
@@ -27,6 +23,8 @@ import (
 	cliproxyauth "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	sdktranslator "github.com/assast/CLIProxyAPI/v6/sdk/translator"
+	"github.com/google/uuid"
+	"github.com/klauspost/compress/zstd"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -644,37 +642,10 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 	return cliproxyexecutor.Response{Payload: out, Headers: resp.Header.Clone()}, nil
 }
 
-func (e *ClaudeExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
-	log.Debugf("claude executor: refresh called")
+func (e *ClaudeExecutor) Refresh(_ context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
 	if auth == nil {
 		return nil, fmt.Errorf("claude executor: auth is nil")
 	}
-	var refreshToken string
-	if auth.Metadata != nil {
-		if v, ok := auth.Metadata["refresh_token"].(string); ok && v != "" {
-			refreshToken = v
-		}
-	}
-	if refreshToken == "" {
-		return auth, nil
-	}
-	svc := claudeauth.NewClaudeAuthWithProxyURL(e.cfg, auth.ProxyURL)
-	td, err := svc.RefreshTokens(ctx, refreshToken)
-	if err != nil {
-		return nil, err
-	}
-	if auth.Metadata == nil {
-		auth.Metadata = make(map[string]any)
-	}
-	auth.Metadata["access_token"] = td.AccessToken
-	if td.RefreshToken != "" {
-		auth.Metadata["refresh_token"] = td.RefreshToken
-	}
-	auth.Metadata["email"] = td.Email
-	auth.Metadata["expired"] = td.Expire
-	auth.Metadata["type"] = "claude"
-	now := time.Now().Format(time.RFC3339)
-	auth.Metadata["last_refresh"] = now
 	return auth, nil
 }
 

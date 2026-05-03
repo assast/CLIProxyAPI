@@ -1,7 +1,6 @@
 // Package gemini provides authentication and token management functionality
 // for Google's Gemini AI services. It handles OAuth2 authentication flows,
-// including obtaining tokens via web-based authorization, storing tokens,
-// and refreshing them when they expire.
+// including obtaining tokens via web-based authorization and storing tokens.
 package gemini
 
 import (
@@ -41,7 +40,7 @@ var Scopes = []string{
 }
 
 // GeminiAuth provides methods for handling the Gemini OAuth2 authentication flow.
-// It encapsulates the logic for obtaining, storing, and refreshing authentication tokens
+// It encapsulates the logic for obtaining and storing authentication tokens
 // for Google's Gemini AI services.
 type GeminiAuth struct {
 }
@@ -60,7 +59,7 @@ func NewGeminiAuth() *GeminiAuth {
 
 // GetAuthenticatedClient configures and returns an HTTP client ready for making authenticated API calls.
 // It manages the entire OAuth2 flow, including handling proxies, loading existing tokens,
-// initiating a new web-based OAuth flow if necessary, and refreshing tokens.
+// and initiating a new web-based OAuth flow if necessary.
 //
 // Parameters:
 //   - ctx: The context for the HTTP client
@@ -121,8 +120,7 @@ func (g *GeminiAuth) GetAuthenticatedClient(ctx context.Context, ts *GeminiToken
 		return nil, fmt.Errorf("failed to unmarshal token: %w", err)
 	}
 
-	// Return an HTTP client that automatically handles token refreshing.
-	return conf.Client(ctx, token), nil
+	return oauth2.NewClient(ctx, oauth2.StaticTokenSource(token)), nil
 }
 
 // createTokenStorage creates a new GeminiTokenStorage object. It fetches the user's email
@@ -137,8 +135,8 @@ func (g *GeminiAuth) GetAuthenticatedClient(ctx context.Context, ts *GeminiToken
 // Returns:
 //   - *GeminiTokenStorage: A new token storage object with user information
 //   - error: An error if the token storage creation fails, nil otherwise
-func (g *GeminiAuth) createTokenStorage(ctx context.Context, config *oauth2.Config, token *oauth2.Token, projectID string) (*GeminiTokenStorage, error) {
-	httpClient := config.Client(ctx, token)
+func (g *GeminiAuth) createTokenStorage(ctx context.Context, _ *oauth2.Config, token *oauth2.Token, projectID string) (*GeminiTokenStorage, error) {
+	httpClient := oauth2.NewClient(ctx, oauth2.StaticTokenSource(token))
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://www.googleapis.com/oauth2/v1/userinfo?alt=json", nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not get user info: %v", err)

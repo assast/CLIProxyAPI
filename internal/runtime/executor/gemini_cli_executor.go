@@ -29,21 +29,12 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 )
 
 const (
-	codeAssistEndpoint      = "https://cloudcode-pa.googleapis.com"
-	codeAssistVersion       = "v1internal"
-	geminiOAuthClientID     = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
-	geminiOAuthClientSecret = "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"
+	codeAssistEndpoint = "https://cloudcode-pa.googleapis.com"
+	codeAssistVersion  = "v1internal"
 )
-
-var geminiOAuthScopes = []string{
-	"https://www.googleapis.com/auth/cloud-platform",
-	"https://www.googleapis.com/auth/userinfo.email",
-	"https://www.googleapis.com/auth/userinfo.profile",
-}
 
 // GeminiCLIExecutor talks to the Cloud Code Assist endpoint using OAuth credentials from auth metadata.
 type GeminiCLIExecutor struct {
@@ -577,7 +568,7 @@ func (e *GeminiCLIExecutor) Refresh(_ context.Context, auth *cliproxyauth.Auth) 
 	return auth, nil
 }
 
-func prepareGeminiCLITokenSource(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth) (oauth2.TokenSource, map[string]any, error) {
+func prepareGeminiCLITokenSource(_ context.Context, _ *config.Config, auth *cliproxyauth.Auth) (oauth2.TokenSource, map[string]any, error) {
 	metadata := geminiOAuthMetadata(auth)
 	if auth == nil || metadata == nil {
 		return nil, nil, fmt.Errorf("gemini-cli auth metadata missing")
@@ -600,9 +591,6 @@ func prepareGeminiCLITokenSource(ctx context.Context, cfg *config.Config, auth *
 	if token.AccessToken == "" {
 		token.AccessToken = stringValue(metadata, "access_token")
 	}
-	if token.RefreshToken == "" {
-		token.RefreshToken = stringValue(metadata, "refresh_token")
-	}
 	if token.TokenType == "" {
 		token.TokenType = stringValue(metadata, "token_type")
 	}
@@ -614,25 +602,10 @@ func prepareGeminiCLITokenSource(ctx context.Context, cfg *config.Config, auth *
 		}
 	}
 
-	conf := &oauth2.Config{
-		ClientID:     geminiOAuthClientID,
-		ClientSecret: geminiOAuthClientSecret,
-		Scopes:       geminiOAuthScopes,
-		Endpoint:     google.Endpoint,
+	if token.AccessToken == "" {
+		return nil, nil, fmt.Errorf("gemini-cli access token missing")
 	}
-
-	ctxToken := ctx
-	if httpClient := helps.NewProxyAwareHTTPClient(ctx, cfg, auth, 0); httpClient != nil {
-		ctxToken = context.WithValue(ctxToken, oauth2.HTTPClient, httpClient)
-	}
-
-	src := conf.TokenSource(ctxToken, &token)
-	currentToken, err := src.Token()
-	if err != nil {
-		return nil, nil, err
-	}
-	updateGeminiCLITokenMetadata(auth, base, currentToken)
-	return oauth2.ReuseTokenSource(currentToken, src), base, nil
+	return oauth2.StaticTokenSource(&token), base, nil
 }
 
 func updateGeminiCLITokenMetadata(auth *cliproxyauth.Auth, base map[string]any, tok *oauth2.Token) {

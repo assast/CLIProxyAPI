@@ -21,7 +21,7 @@ type LoginOptions struct {
 	Prompt       func(prompt string) (string, error)
 }
 
-// Authenticator manages login and optional refresh flows for a provider.
+// Authenticator manages login flows for a provider.
 type Authenticator interface {
 	Provider() string
 	Login(ctx context.Context, cfg *config.Config, opts *LoginOptions) (*coreauth.Auth, error)

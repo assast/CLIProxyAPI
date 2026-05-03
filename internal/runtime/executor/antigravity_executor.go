@@ -47,11 +47,8 @@ const (
 	antigravityCountTokensPath             = "/v1internal:countTokens"
 	antigravityStreamPath                  = "/v1internal:streamGenerateContent"
 	antigravityGeneratePath                = "/v1internal:generateContent"
-	antigravityClientID                    = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
-	antigravityClientSecret                = "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"
 	defaultAntigravityAgent                = "antigravity/1.21.9 darwin/arm64" // fallback only; overridden at runtime by misc.AntigravityUserAgent()
 	antigravityAuthType                    = "antigravity"
-	refreshSkew                            = 3000 * time.Second
 	antigravityCreditsRetryTTL             = 5 * time.Hour
 	antigravityCreditsAutoDisableDuration  = 5 * time.Hour
 	antigravityShortQuotaCooldownThreshold = 5 * time.Minute
@@ -1612,16 +1609,9 @@ attemptLoop:
 	return nil, err
 }
 
-// Refresh refreshes the authentication credentials using the refresh token.
-func (e *AntigravityExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
-	if auth == nil {
-		return auth, nil
-	}
-	updated, errRefresh := e.refreshToken(ctx, auth.Clone())
-	if errRefresh != nil {
-		return nil, errRefresh
-	}
-	return updated, nil
+// Refresh is intentionally a no-op; stored access tokens are used as-is.
+func (e *AntigravityExecutor) Refresh(_ context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
+	return auth, nil
 }
 
 // CountTokens counts tokens for the given request using the Antigravity API.
@@ -1785,104 +1775,15 @@ func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *cliproxyaut
 	}
 }
 
-func (e *AntigravityExecutor) ensureAccessToken(ctx context.Context, auth *cliproxyauth.Auth) (string, *cliproxyauth.Auth, error) {
+func (e *AntigravityExecutor) ensureAccessToken(_ context.Context, auth *cliproxyauth.Auth) (string, *cliproxyauth.Auth, error) {
 	if auth == nil {
 		return "", nil, statusErr{code: http.StatusUnauthorized, msg: "missing auth"}
 	}
 	accessToken := metaStringValue(auth.Metadata, "access_token")
-	expiry := tokenExpiry(auth.Metadata)
-	if accessToken != "" && expiry.After(time.Now().Add(refreshSkew)) {
-		return accessToken, nil, nil
+	if accessToken == "" {
+		return "", nil, statusErr{code: http.StatusUnauthorized, msg: "missing access token"}
 	}
-	refreshCtx := context.Background()
-	if ctx != nil {
-		if rt, ok := ctx.Value("cliproxy.roundtripper").(http.RoundTripper); ok && rt != nil {
-			refreshCtx = context.WithValue(refreshCtx, "cliproxy.roundtripper", rt)
-		}
-	}
-	updated, errRefresh := e.refreshToken(refreshCtx, auth.Clone())
-	if errRefresh != nil {
-		return "", nil, errRefresh
-	}
-	return metaStringValue(updated.Metadata, "access_token"), updated, nil
-}
-
-func (e *AntigravityExecutor) refreshToken(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
-	if auth == nil {
-		return nil, statusErr{code: http.StatusUnauthorized, msg: "missing auth"}
-	}
-	refreshToken := metaStringValue(auth.Metadata, "refresh_token")
-	if refreshToken == "" {
-		return auth, statusErr{code: http.StatusUnauthorized, msg: "missing refresh token"}
-	}
-
-	form := url.Values{}
-	form.Set("client_id", antigravityClientID)
-	form.Set("client_secret", antigravityClientSecret)
-	form.Set("grant_type", "refresh_token")
-	form.Set("refresh_token", refreshToken)
-
-	httpReq, errReq := http.NewRequestWithContext(ctx, http.MethodPost, "https://oauth2.googleapis.com/token", strings.NewReader(form.Encode()))
-	if errReq != nil {
-		return auth, errReq
-	}
-	httpReq.Header.Set("Host", "oauth2.googleapis.com")
-	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	// Real Antigravity uses Go's default User-Agent for OAuth token refresh
-	httpReq.Header.Set("User-Agent", "Go-http-client/2.0")
-
-	httpClient := newAntigravityHTTPClient(ctx, e.cfg, auth, 0)
-	httpResp, errDo := httpClient.Do(httpReq)
-	if errDo != nil {
-		return auth, errDo
-	}
-	defer func() {
-		if errClose := httpResp.Body.Close(); errClose != nil {
-			log.Errorf("antigravity executor: close response body error: %v", errClose)
-		}
-	}()
-
-	bodyBytes, errRead := io.ReadAll(httpResp.Body)
-	if errRead != nil {
-		return auth, errRead
-	}
-
-	if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
-		sErr := statusErr{code: httpResp.StatusCode, msg: string(bodyBytes)}
-		if httpResp.StatusCode == http.StatusTooManyRequests {
-			if retryAfter, parseErr := parseRetryDelay(bodyBytes); parseErr == nil && retryAfter != nil {
-				sErr.retryAfter = retryAfter
-			}
-		}
-		return auth, sErr
-	}
-
-	var tokenResp struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int64  `json:"expires_in"`
-		TokenType    string `json:"token_type"`
-	}
-	if errUnmarshal := json.Unmarshal(bodyBytes, &tokenResp); errUnmarshal != nil {
-		return auth, errUnmarshal
-	}
-
-	if auth.Metadata == nil {
-		auth.Metadata = make(map[string]any)
-	}
-	auth.Metadata["access_token"] = tokenResp.AccessToken
-	if tokenResp.RefreshToken != "" {
-		auth.Metadata["refresh_token"] = tokenResp.RefreshToken
-	}
-	auth.Metadata["expires_in"] = tokenResp.ExpiresIn
-	now := time.Now()
-	auth.Metadata["timestamp"] = now.UnixMilli()
-	auth.Metadata["expired"] = now.Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
-	auth.Metadata["type"] = antigravityAuthType
-	if errProject := e.ensureAntigravityProjectID(ctx, auth, tokenResp.AccessToken); errProject != nil {
-		log.Warnf("antigravity executor: ensure project id failed: %v", errProject)
-	}
-	return auth, nil
+	return accessToken, nil, nil
 }
 
 func (e *AntigravityExecutor) ensureAntigravityProjectID(ctx context.Context, auth *cliproxyauth.Auth, accessToken string) error {

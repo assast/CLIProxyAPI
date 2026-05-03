@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/assast/CLIProxyAPI/v6/internal/config"
 	"github.com/assast/CLIProxyAPI/v6/internal/util"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -337,74 +337,4 @@ func (c *DeviceFlowClient) exchangeDeviceCode(ctx context.Context, deviceCode st
 		ExpiresAt:    expiresAt,
 		Scope:        oauthResp.Scope,
 	}, nil, false
-}
-
-// RefreshToken exchanges a refresh token for a new access token.
-func (c *DeviceFlowClient) RefreshToken(ctx context.Context, refreshToken string) (*KimiTokenData, error) {
-	data := url.Values{}
-	data.Set("client_id", kimiClientID)
-	data.Set("grant_type", "refresh_token")
-	data.Set("refresh_token", refreshToken)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, kimiTokenURL, strings.NewReader(data.Encode()))
-	if err != nil {
-		return nil, fmt.Errorf("kimi: failed to create refresh request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-	for k, v := range c.commonHeaders() {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("kimi: refresh request failed: %w", err)
-	}
-	defer func() {
-		if errClose := resp.Body.Close(); errClose != nil {
-			log.Errorf("kimi refresh token: close body error: %v", errClose)
-		}
-	}()
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("kimi: failed to read refresh response: %w", err)
-	}
-
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return nil, fmt.Errorf("kimi: refresh token rejected (status %d)", resp.StatusCode)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("kimi: refresh failed with status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var tokenResp struct {
-		AccessToken  string  `json:"access_token"`
-		RefreshToken string  `json:"refresh_token"`
-		TokenType    string  `json:"token_type"`
-		ExpiresIn    float64 `json:"expires_in"`
-		Scope        string  `json:"scope"`
-	}
-
-	if err = json.Unmarshal(bodyBytes, &tokenResp); err != nil {
-		return nil, fmt.Errorf("kimi: failed to parse refresh response: %w", err)
-	}
-
-	if tokenResp.AccessToken == "" {
-		return nil, fmt.Errorf("kimi: empty access token in refresh response")
-	}
-
-	var expiresAt int64
-	if tokenResp.ExpiresIn > 0 {
-		expiresAt = time.Now().Unix() + int64(tokenResp.ExpiresIn)
-	}
-
-	return &KimiTokenData{
-		AccessToken:  tokenResp.AccessToken,
-		RefreshToken: tokenResp.RefreshToken,
-		TokenType:    tokenResp.TokenType,
-		ExpiresAt:    expiresAt,
-		Scope:        tokenResp.Scope,
-	}, nil
 }

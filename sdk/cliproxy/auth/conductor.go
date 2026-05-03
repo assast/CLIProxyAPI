@@ -15,13 +15,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
 	internalconfig "github.com/assast/CLIProxyAPI/v6/internal/config"
 	"github.com/assast/CLIProxyAPI/v6/internal/logging"
 	"github.com/assast/CLIProxyAPI/v6/internal/registry"
 	"github.com/assast/CLIProxyAPI/v6/internal/thinking"
 	"github.com/assast/CLIProxyAPI/v6/internal/util"
 	cliproxyexecutor "github.com/assast/CLIProxyAPI/v6/sdk/cliproxy/executor"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -3089,9 +3089,6 @@ func (m *Manager) StartAutoRefresh(parent context.Context, interval time.Duratio
 
 	ctx, cancelCtx := context.WithCancel(parent)
 	workers := refreshMaxConcurrency
-	if cfg, ok := m.runtimeConfig.Load().(*internalconfig.Config); ok && cfg != nil && cfg.AuthAutoRefreshWorkers > 0 {
-		workers = cfg.AuthAutoRefreshWorkers
-	}
 	loop := newAuthAutoRefreshLoop(m, interval, workers)
 
 	m.mu.Lock()
